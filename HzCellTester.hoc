@@ -1,0 +1,14 @@
+// Starts a NEURON session for testing individual horizontal cells
+
+
+load_file("HzCell.hoc")
+objref cell
+cell = new HzCell()
+access cell.soma
+
+
+/////////////////////////////////////////////////////////////////////
+
+celsius = 25
+load_file("HzCellTesterIc.ses")
+

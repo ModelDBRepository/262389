@@ -1,0 +1,126 @@
+// Starts a NEURON session for testing synaptic interactions between cells.
+// 
+// Network topology:
+//         cone
+//    + - /    \ +
+//      Hz  --  Hz
+//          +
+// 
+// All 3 cells are stimulated equally with the intracellular stimulus
+
+
+load_file("HzCell.hoc")
+load_file("Cone.hoc")
+
+// construct cells
+objref preCell, postCell, latCell
+preCell = new Cone()
+postCell = new HzCell()
+latCell = new HzCell()
+// postCell = new Cone()
+access postCell.soma
+
+// excitatory synapse
+objref synEx, pcEx
+pcEx = new ParallelContext()
+postCell.soma synEx = new Synapse(0.5)
+preCell.soma pcEx.source_var(&v(0.5), 1)
+postCell.soma pcEx.target_var(synEx, &synEx.V_pre, 1)
+synEx.v_th = -47
+synEx.v_slope = 4.0
+synEx.g_max = 0.050
+{ pcEx.setup_transfer() }
+
+// inhibitory synapse
+objref synIn, pcIn
+pcIn = new ParallelContext()
+preCell.soma synIn = new Synapse(0.5)
+postCell.soma pcIn.source_var(&v(0.5), 2)
+preCell.soma pcIn.target_var(synIn, &synIn.V_pre, 2)
+synIn.v_th = -47
+synIn.v_slope = 4.0
+synIn.g_max = -0.050
+{ pcIn.setup_transfer() }
+
+// lateral excitatory synapse ->
+objref synLat1, pcLat1
+pcLat1 = new ParallelContext()
+latCell.soma synLat1 = new Synapse(0.5)
+postCell.soma pcLat1.source_var(&v(0.5), 3)
+latCell.soma pcLat1.target_var(synLat1, &synLat1.V_pre, 3)
+synLat1.v_th = -47
+synLat1.v_slope = 6
+synLat1.g_max = 0.0050
+{ pcLat1.setup_transfer() }
+
+// lateral excitatory synapse <-
+objref synLat2, pcLat2
+pcLat2 = new ParallelContext()
+postCell.soma synLat2 = new Synapse(0.5)
+latCell.soma pcLat2.source_var(&v(0.5), 4)
+postCell.soma pcLat2.target_var(synLat2, &synLat2.V_pre, 4)
+synLat2.v_th = -47
+synLat2.v_slope = 6
+synLat2.g_max = 0.0050
+{ pcLat2.setup_transfer() }
+
+// use preCell to +ve feed into lateral cell
+objref synDiag, pcDiag
+pcDiag = new ParallelContext()
+latCell.soma synDiag = new Synapse(0.5)
+preCell.soma pcDiag.source_var(&v(0.5), 5)
+postCell.soma pcDiag.target_var(synDiag, &synDiag.V_pre, 5)
+synDiag.v_th = -47
+synDiag.v_slope = 6
+synDiag.g_max = 0.050
+{ pcDiag.setup_transfer() }
+
+
+/////////////////////////////////////////////////////////////////////
+
+// stimulus
+objref stim[3]
+preCell.soma stim[0] = new IClamp(0.5)
+postCell.soma stim[1] = new IClamp(0.5)
+latCell.soma stim[2] = new IClamp(0.5)
+for i=0,2 {
+    stim[i].del = 1200
+    stim[i].dur = 1
+    stim[i].amp = 0.2
+}
+
+
+/////////////////////////////////////////////////////////////////////
+
+// graphing
+objref g1, g2, g3
+g1 = new Graph(0)
+addplot(g1, 0)  // GUI to update this graph
+g1.view(0, -55, 2000, 10, 255, 77, 450, 300)  //xmin ymin xlen ylen ...
+g1.addvar("preCell.soma.v(0.5)", 1, 1)
+g1.addvar("postCell.soma.v(0.5)", 2, 1)
+g2 = new Graph(0)
+addplot(g2, 0)  // GUI to update this graph
+g2.view(0, -0.02, 2000, 0.04, 255, 405, 450, 300)  //xmin ymin xlen ylen ...
+g2.addvar("synEx.i", 1, 1)
+g2.addvar("synIn.i", 2, 1)
+g2.addvar("synLat1.i", 3, 1)
+g2.addvar("synLat2.i", 4, 1)
+g3 = new Graph(0)
+addplot(g3, 0)  // GUI to update this graph
+g3.view(1200, -51, 800, 4, 255, 700, 450, 300)  //xmin ymin xlen ylen ...
+g3.addvar("postCell.soma.v(0.5)", 2, 1)
+
+// execution
+load_file("exp-2cellsSyn.ses")
+{ load_file("parcom.hoc") }
+ParallelComputeTool[0].nthread(1)
+
+// recording
+load_file("util.hoc")
+uRecord(&postCell.soma.v(0.5))
+proc save() {
+    uSave("../netConeHz-results/tmp.txt")
+    printf("INFO: postCell.soma.v(0.5) -> ../netConeHz-results/tmp.txt\n")
+}
+

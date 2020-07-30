@@ -1,0 +1,140 @@
+// Script to set up an environment for testing the synaptic interaction between a 
+// pair of identical cells, which could be either cones or photoreceptors.
+//
+// Network topology:
+//      cell1
+//       | ^
+//  [+]  | |  [-]
+//       v |
+//      cell2
+// 
+// Inter-cell displacement x = 0 y = 0 z = -20
+
+// global parameters
+SYN_EX_THR     = -47
+SYN_EX_SLOPE   = 5.0
+SYN_EX_GMAX    = 0.050
+SYN_IN_THR     = -47
+SYN_IN_SLOPE   = 5.0
+SYN_IN_GMAX    = -0.050
+
+
+/////////////////////////////////////////////////////////////////////
+
+load_file("HzCell.hoc")
+load_file("Cone.hoc")
+objref cell1, cell2
+
+// construct cells
+proc createHzHzPair() {
+    cell1 = new HzCell(0, 0, 0)
+    cell2 = new HzCell(0, 0, -20)
+}
+proc createConeConePair() {
+    cell1 = new Cone(0, 0, 0)
+    cell2 = new Cone(0, 0, -20)
+}
+
+objref synEx, pcEx
+objref synIn, pcIn
+proc createSynapses() {
+    // excitatory synapse
+    pcEx = new ParallelContext()
+    cell2.soma synEx = new Synapse(0.5)
+    cell1.soma pcEx.source_var(&v(0.5), 1)
+    cell2.soma pcEx.target_var(synEx, &synEx.V_pre, 1)
+    synEx.v_th = SYN_EX_THR
+    synEx.v_slope = SYN_EX_SLOPE
+    synEx.g_max = SYN_EX_GMAX
+    { pcEx.setup_transfer() }
+
+    // inhibitory synapse
+    pcIn = new ParallelContext()
+    cell1.soma synIn = new Synapse(0.5)
+    cell2.soma pcIn.source_var(&v(0.5), 2)
+    cell1.soma pcIn.target_var(synIn, &synIn.V_pre, 2)
+    synIn.v_th = SYN_IN_THR
+    synIn.v_slope = SYN_IN_SLOPE
+    synIn.g_max = SYN_IN_GMAX
+    { pcIn.setup_transfer() }
+}
+
+
+/////////////////////////////////////////////////////////////////////
+
+// intracellular stimulus
+objref stim[2]
+proc intraStim() { local i
+    cell1.soma stim[0] = new IClamp(0.5)
+    cell2.soma stim[1] = new IClamp(0.5)
+    for i = 0,0 {  //stimulate only one cell of the pair
+        stim[i].del = 2500
+        stim[i].dur = 0.5
+        stim[i].amp = 0.4
+    }
+    printf("INFO: Using intracellular stimulation\n")
+}
+
+// extracellular stimulus
+gExtraStimFlag = 0
+proc extraStim() {
+    forall {
+        insert extracellular
+        insert xtra
+    }
+    load_file("interpxyz.hoc")
+    load_file("stim.hoc")
+    gExtraStimFlag = 1  // note extracellular stim
+    printf("INFO: Using extracellular stimulation\n")
+}
+
+// depolarizing holding potentials 
+objref depCurrent[2]
+proc depolHoldingCurrent() {
+    cell1.soma depCurrent[0] = new IClamp(0.5)
+    cell2.soma depCurrent[1] = new IClamp(0.5)
+    for i=0,1 {
+        depCurrent[i].del = $1  //PR_DEL_STEADY
+        depCurrent[i].dur = $2  //PR_DUR_STEADY
+        depCurrent[i].amp = $3  //PR_AMP_STEADY
+    }
+    depCurrent[0].amp = $3 + $4  //PR_AMP_DELTA
+}
+
+/////////////////////////////////////////////////////////////////////
+
+// graphing
+objref g1, g2
+proc graphing() {
+    g1 = new Graph(0)
+    addplot(g1, 0)  // GUI to update this graph
+    g1.view(0, -57, 4500, 10, 255, 77, 450, 300)  //xmin ymin xlen ylen ...
+    g1.addvar("cell1.soma.v(0.5)", 1, 1)
+    g1.addvar("cell2.soma.v(0.5)", 2, 1)
+    g2 = new Graph(0)
+    addplot(g2, 0)  // GUI to update this graph
+    g2.view(0, -0.02, 4500, 0.04, 255, 405, 450, 300)  //xmin ymin xlen ylen ...
+    g2.addvar("synEx.i", 1, 1)
+    g2.addvar("synIn.i", 2, 1)
+}
+
+// recording
+objref dv[2]
+proc recording() {
+    dv[0] = new Vector()
+    dv[0].record(&cell1.soma.v(0.5))
+    dv[1] = new Vector()
+    dv[1].record(&cell2.soma.v(0.5))
+}
+objref f
+proc save() {
+    f = new File()
+    f.wopen("../netConeHz-results/cell1.txt")
+    dv[0].printf(f, "%f\n")
+    f.close()
+    f.wopen("../netConeHz-results/cell2.txt")
+    dv[1].printf(f, "%f\n")
+    f.close()
+    printf("INFO: results saved to ../netConeHz-results/cell[1,2].txt\n")
+}
+

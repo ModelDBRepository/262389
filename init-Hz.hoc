@@ -1,0 +1,101 @@
+// Starts a NEURON session for testing a network containing horizontal cells.
+
+
+// create cells
+load_file("network.hoc")
+load_file("util.hoc")
+createHzCells()
+createSimHzPrInputs()
+
+
+/////////////////////////////////////////////////////////////////////
+
+// intracellular stimulus
+objref stimHz[25]
+proc intraStim() { local i, r, c
+    i = 0
+    for r = 0,4 {
+        for c = 0,4 {
+            gHzCells[CTR-2+r][CTR-2+c].soma stimHz[i] = new IClamp(0.5)
+            stimHz[i].del = 20.0
+            stimHz[i].dur = 0.5
+            if (r == 0 || r == 4 || c == 0 || c == 4) {
+                stimHz[i].amp = 0.2
+            } else {
+                stimHz[i].amp = 0.4
+            }
+            i = i + 1
+        }
+    }
+    printf("INFO: Using intracellular stimulation\n")
+}
+
+// extracellular stimulus
+gExtraStimFlag = 0
+proc extraStim() {
+    forall {
+        insert extracellular
+        insert xtra
+    }
+    load_file("interpxyz.hoc")
+    load_file("stim.hoc")
+    gExtraStimFlag = 1  // note extracellular stim
+    printf("INFO: Using extracellular stimulation\n")
+}
+
+
+/////////////////////////////////////////////////////////////////////
+
+// graphing
+objref g
+g = new Graph(0)
+addplot(g, 0)  // GUI to update this graph
+g.view(0, -60, 400, 20, 255, 405, 450, 300)  //xmin ymin xlen ylen ...
+g.addvar("gHzCells[CTR-2][CTR-2].soma.v(0.5)", 2, 1)
+g.addvar("gHzCells[CTR-1][CTR-1].soma.v(0.5)", 3, 1)
+g.addvar("gHzCells[CTR][CTR].soma.v(0.5)", 4, 1)
+g.addvar("gHzCells[CTR+1][CTR+1].soma.v(0.5)", 5, 1)
+g.addvar("gHzCells[10][10].soma.v(0.5)", 6, 1)
+
+
+/////////////////////////////////////////////////////////////////////
+
+// execution
+v_init = -50.00
+tstop = 400
+celsius = 35
+access gHzCells[CTR][CTR].soma
+load_file("runCtrl.ses")
+extraStim()
+
+// parallel processing doesn't work for extracellular & linear mech
+{ load_file("parcom.hoc") }
+if (gExtraStimFlag == 0) {
+    ParallelComputeTool[0].nthread(4)
+}
+
+// recording
+objref dv[HZ_CELLS][HZ_CELLS]
+objref f
+strdef fname
+proc rec() {
+    for r = 0,HZ_CELLS-1 {
+        for c = 0,HZ_CELLS-1 {
+            dv[r][c] = new Vector()
+            dv[r][c].record(&gHzCells[r][c].soma.v(0.5))
+        }
+    }
+}
+proc save() {
+    for r = 0,HZ_CELLS-1 {
+        for c = 0,HZ_CELLS-1 {
+            sprint(fname, "../netConeHz-results/hz_%dM_%.2d_%.2d.txt", HZ_GAP_R, r,c)
+            f = new File()
+            f.wopen(fname)
+            dv[r][c].printf(f, "%f\n")
+            f.close()
+        }
+    }
+    printf("INFO: results saved to ../netConeHz-results\n")
+}
+

@@ -1,0 +1,12 @@
+// Starts a NEURON session for testing individual cone photoreceptors
+
+
+load_file("Cone.hoc")
+
+objref cell
+cell = new Cone()
+access cell.soma
+
+celsius = 20
+load_file("ConeTesterIc.ses")
+

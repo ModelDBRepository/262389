@@ -1,0 +1,83 @@
+// Template for horizontal cells
+
+
+begintemplate HzCell
+    public init, soma, dendrite
+    create soma, dendrite[8]  //N, E, S, W, & 4 diagonals
+
+    public all, dendrites
+    objref all, dendrites
+
+    proc init() { local x, y, z
+        // for specifying a network of cells
+        if (numarg() == 3) {
+            x = $1
+            y = $2
+            z = $3
+        } else {
+            x = 0
+            y = 0
+            z = 0
+        }
+
+        // topology
+        soma {
+            pt3dclear() pt3dadd(x-10, y, z, 1) pt3dadd(x, y, z, 1)}
+        dendrite[0] { //N
+            pt3dclear() pt3dadd(x-5, y+5, z, 1) pt3dadd(x-5, y+142, z, 1)}
+        dendrite[1] { //E
+            pt3dclear() pt3dadd(x, y, z, 1) pt3dadd(x+137, y, z, 1)}
+        dendrite[2] { //W
+            pt3dclear() pt3dadd(x-10, y, z, 1) pt3dadd(x-147, y, z, 1)}
+        dendrite[3] { //S
+            pt3dclear() pt3dadd(x-5, y-5, z, 1) pt3dadd(x-5, y-142, z, 1)}
+        dendrite[4] { //NE
+            pt3dclear() pt3dadd(x-2, y+1.4, z, 1) pt3dadd(x+94.9, y+99.8, z, 1)}
+        dendrite[5] { //SE
+            pt3dclear() pt3dadd(x-2, y-1.4, z, 1) pt3dadd(x+94.9, y-98.3, z, 1)}
+        dendrite[6] { //NW
+            pt3dclear() pt3dadd(x-8, y+1.4, z, 1) pt3dadd(x-104.9, y+99.8, z, 1)}
+        dendrite[7] { //SW
+            pt3dclear() pt3dadd(x-8, y-1.4, z, 1) pt3dadd(x-104.9, y-98.3, z, 1)}
+
+        // geometry
+        soma {
+            L = 10
+            diam = 10 
+            // L = 58.0869
+            // diam = 58.0869
+            nseg = 1
+        }
+        for i = 0,7 {
+            dendrite[i] {
+                L = 137
+                diam = 3
+                nseg = 1
+            }
+        }
+        for i = 0,7 connect dendrite[i](1), soma(0)
+        
+        // section list
+        all = new SectionList()
+        soma all.append()
+        for i=0,7 dendrite[i] all.append()
+        dendrites = new SectionList()
+        for i=0,7 dendrite[i] dendrites.append()
+        
+        // biophysics
+        forsec all {
+            insert HzINa
+            insert HzICa
+            insert HzIKv
+            insert HzIA
+            insert HzIKa
+            insert HzLeak
+            ena = 55
+            ek = -80
+            el = -80
+            Ra = 160
+            cm = 1
+        }
+    }
+endtemplate HzCell
+

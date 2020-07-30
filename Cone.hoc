@@ -1,0 +1,38 @@
+// Template for cone photoreceptors
+
+
+begintemplate Cone
+    public soma 
+    create soma
+
+    proc init() { local x, y, z
+        // for specifying a network of cells
+        if (numarg() == 3) {
+            x = $1
+            y = $2
+            z = $3
+        } else {
+            x = 0
+            y = 0
+            z = 0
+        }
+
+        soma {
+            // topology
+            { pt3dclear() pt3dadd(x-10, y, z, 1) pt3dadd(x+0, y, z, 1) }
+
+            // geometry
+            nseg = 1
+            diam = 10 / PI
+            L = 10
+            cm = 32
+            
+            // biophysics
+            insert ConePR
+            insert ConeIKv
+            insert ConeIh
+            v_init = -42
+        }
+    }
+endtemplate Cone
+

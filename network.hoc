@@ -1,0 +1,325 @@
+// Script to set up a network environment containing cones and horizontal cells, 
+// connected by gap junctions and/or chemical synapses.
+
+
+/////////////////////////////////////////////////////////////////////
+// Parameters
+
+CONES          = 13
+HZ_CELLS       = 13
+GRID_OFFSET    = 50.0   // distance between somas (um)
+CONE_HZ_OFFSET = -20    // depth of Hz below cone (um)
+CONE_GAP_R     = 1000
+HZ_GAP_R       = 100    // >= 50 MOhm Qian93
+SYN_EX_THR     = -47
+SYN_EX_SLOPE   = 5.0
+SYN_EX_GMAX    = 0.050
+SYN_IN_THR     = -47
+SYN_IN_SLOPE   = 5.0
+SYN_IN_GMAX    = -0.050
+SYN_HZ_HZ_GMAX = 0.0050
+
+PR_DEL_STEADY = 0
+PR_DUR_STEADY = 1000
+PR_AMP_STEADY = 0.0142
+
+CTR = (HZ_CELLS-1) / 2  // convenience for center point
+
+
+/////////////////////////////////////////////////////////////////////
+// Globals
+
+load_file("Cone.hoc")
+load_file("HzCell.hoc")
+
+objref gCones[CONES][CONES]
+objref gConesGaps
+objref gHzCells[HZ_CELLS][HZ_CELLS]
+objref gHzCellsGaps
+objref gConeHzSyn[HZ_CELLS][HZ_CELLS]
+objref gHzConeSyn[CONES][CONES]
+objref gHzHzSyn
+objref gSimHzCellsPRInputs[HZ_CELLS][HZ_CELLS]
+objref gNetTopology
+
+gPci = 0                                 //parallel computing index
+objref gap1, gap2, pc1, pc2, syn1, syn2  //convenience only
+
+
+/////////////////////////////////////////////////////////////////////
+// Procedures
+
+proc createCones() { local r, c, xpos, ypos
+    //create cones
+    xpos = 0
+    ypos = 0
+    for r = 0,CONES-1 {
+        for c = 0,CONES-1 {
+            gCones[r][c] = new Cone(xpos, ypos, 0)
+            xpos = xpos + GRID_OFFSET
+        }
+        xpos = 0
+        ypos = ypos + GRID_OFFSET
+    }
+
+    //connect with gap junctions
+    gConesGaps = new List()
+    for r = 0,CONES-1 {
+        for c = 0,CONES-1 {
+            if (c < CONES-1 && r < CONES-1) {
+                //std
+                connectConeGap(1, gCones[r][c], gCones[r][c+1], gConesGaps)
+                connectConeGap(2, gCones[r][c], gCones[r+1][c], gConesGaps)
+            } else if (c == CONES-1 && r < CONES-1) {
+                //last col
+                connectConeGap(2, gCones[r][c], gCones[r+1][c], gConesGaps)
+            } else if (r == CONES-1 && c < CONES-1) {
+                //last row
+                connectConeGap(1, gCones[r][c], gCones[r][c+1], gConesGaps)
+            }
+        }
+    }
+    setConeGapR(CONE_GAP_R)
+    printf("INFO: Cones = %dx%d (gap = %d)\n", CONES, CONES, gConesGaps.count)
+}
+
+proc connectConeGap() {
+    pc1 = new ParallelContext()
+    pc2 = new ParallelContext()
+
+    if ($1 == 1) {
+        //east-west connection
+        $o2.soma gap1 = new GapPC(0.9999)
+        $o4.append(gap1)
+        $o3.soma gap2 = new GapPC(0.0001)
+        $o4.append(gap2)
+
+        $o2.soma pc1.source_var(&v(0.9999), gPci)
+        $o3.soma pc1.target_var(gap2, &gap2.vgap, gPci)
+        gPci = gPci + 1
+        $o3.soma pc2.source_var(&v(0.0001), gPci)
+        $o2.soma pc2.target_var(gap1, &gap1.vgap, gPci)
+        gPci = gPci + 1
+    } else {
+        //north-south connection
+        $o2.soma gap1 = new GapPC(0.9999)
+        $o4.append(gap1)
+        $o3.soma gap2 = new GapPC(0.0001)
+        $o4.append(gap2)
+
+        $o2.soma pc1.source_var(&v(0.9999), gPci)
+        $o3.soma pc1.target_var(gap2, &gap2.vgap, gPci)
+        gPci = gPci + 1
+        $o3.soma pc2.source_var(&v(0.0001), gPci)
+        $o2.soma pc2.target_var(gap1, &gap1.vgap, gPci)
+        gPci = gPci + 1
+    }
+    {
+        pc1.setup_transfer()
+        pc2.setup_transfer()
+    }
+}
+
+proc setConeGapR() { local i
+    // sets cone gap junction resistance
+    for i = 0,gConesGaps.count-1 {
+        gConesGaps.object(i).r = $1
+    }
+    CONE_GAP_R = $1
+}
+
+proc createHzCells() { local r, c, xpos, ypos
+    //create horizontal cells
+    xpos = 0
+    ypos = 0
+    for r = 0,HZ_CELLS-1 {
+        for c = 0,HZ_CELLS-1 {
+            gHzCells[r][c] = new HzCell(xpos, ypos, CONE_HZ_OFFSET)
+            xpos = xpos + GRID_OFFSET
+        }
+        xpos = 0
+        ypos = ypos + GRID_OFFSET
+    }
+
+    //connect with gap junctions & lateral synapses
+    gHzCellsGaps = new List()
+    gHzHzSyn = new List()
+    for r = 0,HZ_CELLS-1 {
+        for c = 0,HZ_CELLS-1 {
+            if (c < HZ_CELLS-1 && r < HZ_CELLS-1) {
+                //std
+                connectHzGap(1, gHzCells[r][c], gHzCells[r][c+1], gHzCellsGaps)
+                connectHzGap(2, gHzCells[r][c], gHzCells[r+1][c], gHzCellsGaps)
+                // connectHzSyn(1, gHzCells[r][c], gHzCells[r][c+1], gHzHzSyn)
+                // connectHzSyn(2, gHzCells[r][c], gHzCells[r+1][c], gHzHzSyn)
+            } else if (c == HZ_CELLS-1 && r < HZ_CELLS-1) {
+                //last col
+                connectHzGap(2, gHzCells[r][c], gHzCells[r+1][c], gHzCellsGaps)
+                // connectHzSyn(2, gHzCells[r][c], gHzCells[r+1][c], gHzHzSyn)
+            } else if (r == HZ_CELLS-1 && c < HZ_CELLS-1) {
+                //last row
+                connectHzGap(1, gHzCells[r][c], gHzCells[r][c+1], gHzCellsGaps)
+                // connectHzSyn(1, gHzCells[r][c], gHzCells[r][c+1], gHzHzSyn)
+            }
+        }
+    }
+    setHzGapR(HZ_GAP_R)
+    setHzHzSynG(SYN_HZ_HZ_GMAX)
+    printf("INFO: HzCells = %dx%d (gap = %d)\n", HZ_CELLS, HZ_CELLS, \
+        gHzCellsGaps.count)
+    printf("INFO: HZ <-> HZ syn = %d\n", gHzHzSyn.count)
+}
+
+proc connectHzGap() { 
+    pc1 = new ParallelContext()
+    pc2 = new ParallelContext()
+    
+    if ($1 == 1) {
+        //east-west connection
+        $o2.dendrite[1] gap1 = new GapPC(0.82)
+        $o4.append(gap1)
+        $o3.dendrite[3] gap2 = new GapPC(0.82)
+        $o4.append(gap2)
+
+        $o2.dendrite[1] pc1.source_var(&v(0.82), gPci)
+        $o3.dendrite[3] pc1.target_var(gap2, &gap2.vgap, gPci)
+        gPci = gPci + 1
+        $o3.dendrite[3] pc2.source_var(&v(0.82), gPci)
+        $o2.dendrite[1] pc2.target_var(gap1, &gap1.vgap, gPci)
+        gPci = gPci + 1
+    } else {
+        //north-south connection
+        $o2.dendrite[2] gap1 = new GapPC(0.82)
+        $o4.append(gap1)
+        $o3.dendrite[0] gap2 = new GapPC(0.82)
+        $o4.append(gap2)
+
+        $o2.dendrite[2] pc1.source_var(&v(0.82), gPci)
+        $o3.dendrite[0] pc1.target_var(gap2, &gap2.vgap, gPci)
+        gPci = gPci + 1
+        $o3.dendrite[0] pc2.source_var(&v(0.82), gPci)
+        $o2.dendrite[2] pc2.target_var(gap1, &gap1.vgap, gPci)
+        gPci = gPci + 1
+    }
+    {
+        pc1.setup_transfer() 
+        pc2.setup_transfer() 
+    }
+}
+
+proc connectHzSyn() {
+    pc1 = new ParallelContext()
+    pc2 = new ParallelContext()
+    
+    if ($1 == 1) {
+        //east-west connection
+        $o2.dendrite[1] syn1 = new Synapse(0.0001)
+        $o4.append(syn1)
+        $o3.dendrite[3] syn2 = new Synapse(0.0001)
+        $o4.append(syn2)
+
+        $o2.dendrite[1] pc1.source_var(&v(0.0001), gPci)
+        $o3.dendrite[3] pc1.target_var(syn2, &syn2.V_pre, gPci)
+        gPci = gPci + 1
+        $o3.dendrite[3] pc2.source_var(&v(0.0001), gPci)
+        $o2.dendrite[1] pc2.target_var(syn1, &syn1.V_pre, gPci)
+        gPci = gPci + 1
+    } else {
+        //north-south connection
+        $o2.dendrite[2] syn1 = new Synapse(0.0001)
+        $o4.append(syn1)
+        $o3.dendrite[0] syn2 = new Synapse(0.0001)
+        $o4.append(syn2)
+
+        $o2.dendrite[2] pc1.source_var(&v(0.0001), gPci)
+        $o3.dendrite[0] pc1.target_var(syn2, &syn2.V_pre, gPci)
+        gPci = gPci + 1
+        $o3.dendrite[0] pc2.source_var(&v(0.0001), gPci)
+        $o2.dendrite[2] pc2.target_var(syn1, &syn1.V_pre, gPci)
+        gPci = gPci + 1
+    }
+    {
+        pc1.setup_transfer() 
+        pc2.setup_transfer() 
+    }
+}
+
+proc setHzHzSynG() { local i
+    for i = 0,gHzHzSyn.count-1 {
+        gHzHzSyn.object(1).v_th = -47
+        gHzHzSyn.object(1).v_slope = 6
+        gHzHzSyn.object(i).g_max = $1
+    }
+    SYN_HZ_HZ_GMAX = $1
+}
+
+proc setHzGapR() { local i
+    // sets horizontal cell gap junction resistance
+    for i = 0,gHzCellsGaps.count-1 {
+        gHzCellsGaps.object(i).r = $1
+    }
+    HZ_GAP_R = $1
+}
+
+proc createSimHzPrInputs() { local r, c
+    // create simulated constant photoreceptor EPSC for horizontal cells
+    for r = 0,HZ_CELLS-1 {
+        for c = 0,HZ_CELLS-1 {
+            gHzCells[r][c].soma gSimHzCellsPRInputs[r][c] = new PRInput(0.5)
+        }
+    }
+    setPRInput(PR_DEL_STEADY, PR_DUR_STEADY, PR_AMP_STEADY)
+}
+
+proc setPRInput() { local r, c
+    for r = 0,HZ_CELLS-1 {
+        for c = 0,HZ_CELLS-1 {
+            gSimHzCellsPRInputs[r][c].delSteady = $1
+            gSimHzCellsPRInputs[r][c].durSteady = $2
+            gSimHzCellsPRInputs[r][c].ampSteady = $3
+        }
+    }
+}
+
+proc createConeHzSynapses() { local r, c
+    // excitatory synapses
+    for r = 0,HZ_CELLS-1 {
+        for c = 0,HZ_CELLS-1 {
+            pc1 = new ParallelContext()
+            gHzCells[r][c].soma gConeHzSyn[r][c] = new Synapse(0.5)
+            gCones[r][c].soma pc1.source_var(&v(0.5), gPci)
+            gHzCells[r][c].soma pc1.target_var(gConeHzSyn[r][c], \
+                &gConeHzSyn[r][c].V_pre, gPci)
+            { pc1.setup_transfer() }
+            gPci = gPci + 1
+
+            gConeHzSyn[r][c].v_th = SYN_EX_THR
+            gConeHzSyn[r][c].v_slope = SYN_EX_SLOPE
+            gConeHzSyn[r][c].g_max = SYN_EX_GMAX
+        }
+    }
+    printf("INFO: PR --> HZ syn = %d\n", HZ_CELLS * HZ_CELLS)
+
+    // inhibitory synapses
+    for r = 0,CONES-1 {
+        for c = 0,CONES-1 {
+            pc1 = new ParallelContext()
+            gCones[r][c].soma gHzConeSyn[r][c] = new Synapse(0.5)
+            gHzCells[r][c].soma pc1.source_var(&v(0.5), gPci)
+            gCones[r][c].soma pc1.target_var(gHzConeSyn[r][c], \
+                &gHzConeSyn[r][c].V_pre, gPci)
+            { pc1.setup_transfer() }
+            gPci = gPci + 1
+
+            gHzConeSyn[r][c].v_th = SYN_IN_THR
+            gHzConeSyn[r][c].v_slope = SYN_IN_SLOPE
+            gHzConeSyn[r][c].g_max = SYN_IN_GMAX
+        }
+    }
+    printf("INFO: HZ --> PR syn = %d\n", CONES * CONES)
+}
+
+proc displayNetwork() {
+    gNetTopology = new Shape()  //defaults for now
+}
+

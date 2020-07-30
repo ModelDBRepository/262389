@@ -1,0 +1,49 @@
+// A range of misc utility functions
+
+
+// globals
+objref uDv, uFobj
+objref uState, uFState
+
+
+proc uRecord() {
+    // specify the variable to record, e.g. uRecord(&soma.ina(0.5))
+    uDv = new Vector()
+    uDv.record(&$&1)
+}
+
+proc uSave() {
+    // save the recorded data (in memory) to specified file, e.g. uSave("file.txt")
+    uFobj = new File()
+    uFobj.wopen($s1)
+    // uFobj.printf("%d\n", uDv.size())
+    uDv.printf(uFobj, "%f\n")
+    uFobj.close()
+}
+
+proc uSaveState() {
+    // saving model uState
+    printf("INFO: Can only save state without parallel computing\n")
+    uState = new SaveState()
+    uState.save()
+    uFState = new File("_state.dat")
+    uState.fwrite(uFState)
+}
+proc uRestoreState() {
+    // restoring model uState
+    uState = new SaveState()
+    uFState = new File("_state.dat")
+    uState.fread(uFState)
+
+    finitialize(v_init)
+    uState.restore()
+    t = 0
+    if (cvode.active()) {
+        cvode.re_init()
+    } else {
+        fcurrent()
+    }
+    frecord_init()
+    printf("INFO: Restarting saved system state\n")
+}
+

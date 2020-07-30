@@ -1,0 +1,25 @@
+// Starts a NEURON session for testing synaptic interactions between a pair of 
+// cones
+
+
+PR_DEL_STEADY = 0
+PR_DUR_STEADY = 4500
+PR_AMP_STEADY = -0.024
+PR_AMP_DELTA  = 0.014
+
+// create cell pair
+load_file("exp-CellPair.hoc")
+createConeConePair()
+createSynapses()
+depolHoldingCurrent(PR_DEL_STEADY, PR_DUR_STEADY, PR_AMP_STEADY, PR_AMP_DELTA)
+graphing()
+recording()
+
+// execution
+v_init = -53
+tstop = 4500
+celsius = 35
+access cell1.soma
+load_file("runCtrl.ses")
+intraStim()
+
